@@ -107,7 +107,9 @@ class BrowserRouter:
                 return BrowserIntent("search", {"query": strip_search_words(target), "engine": "google"})
             return BrowserIntent("open_url", {"url": target})
 
-        search_match = re.search(r"^(?:search|find|look\s+up)(?:\s+(?:the\s+web|online))?(?:\s+for)?\s+(.+)$", text, re.I)
+        search_match = re.search(r"^search(?:\s+(?:the\s+web|online))?(?:\s+for)?\s+(.+)$", text, re.I)
+        if search_match is None:
+            search_match = re.search(r"^(?:find|look\s+up)\s+(?:the\s+web|online|on\s+the\s+web)(?:\s+for)?\s+(.+)$", text, re.I)
         if search_match:
             query_text = search_match.group(1).strip()
             engine, query = extract_engine_and_query(query_text)
@@ -185,7 +187,7 @@ def parse_media_search(text: str) -> tuple[str | None, str | None]:
 def looks_like_search_request(text: str) -> bool:
     lowered = text.lower()
     return any(f" on {engine}" in lowered for engine in SEARCH_ENGINES) or lowered.startswith(
-        ("search ", "find ", "look up ")
+        ("search ", "find online ", "find the web ", "find on the web ", "look up online ", "look up on the web ")
     )
 
 
