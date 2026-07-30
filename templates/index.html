@@ -574,6 +574,7 @@ document.addEventListener('click', e=>{
   if(!e.target.closest('.model-switch')) toggleModelPanel(false);
 });
 loadModels();
+loadChatHistory();
 
 async function refreshBrowserStatus(){
   const dot = document.getElementById('dot-browser');
@@ -637,13 +638,7 @@ viewport.addEventListener('scroll', ()=>{
 fab.addEventListener('click', ()=>scrollToBottom());
 
 function addUserMessage(text){
-  hero.style.display='none';
-  const msg = document.createElement('div');
-  msg.className='msg user';
-  msg.innerHTML = `<div class="avatar">You</div><div class="bubble"></div>`;
-  msg.querySelector('.bubble').textContent = text;
-  thread.appendChild(msg);
-  scrollToBottom();
+  addMessage('user', text);
 }
 
 function addTypingIndicator(){
@@ -675,12 +670,42 @@ function addActionCard(url, status){
 }
 
 function addAgentText(text){
+  addMessage('assistant', text);
+}
+
+function addMessage(role, text, smooth=true){
+  hero.style.display='none';
   const msg = document.createElement('div');
-  msg.className='msg agent';
-  msg.innerHTML = `<div class="avatar">AI</div><div class="bubble"></div>`;
-  msg.querySelector('.bubble').textContent = text;
+  const isUser = role === 'user';
+  msg.className = `msg ${isUser ? 'user' : 'agent'}`;
+  msg.innerHTML = `<div class="avatar">${isUser ? 'You' : 'AI'}</div><div class="bubble"></div>`;
+  const bubble = msg.querySelector('.bubble');
+  if(isUser){
+    bubble.textContent = text;
+  }else{
+    bubble.innerHTML = marked.parse(text || '');
+  }
   thread.appendChild(msg);
-  scrollToBottom();
+  scrollToBottom(smooth);
+}
+
+async function loadChatHistory(){
+  try{
+    const res = await fetch('/api/history');
+    if(!res.ok) return;
+    const data = await res.json();
+    const messages = Array.isArray(data.messages) ? data.messages : [];
+    if(!messages.length) return;
+    thread.innerHTML = '';
+    messages.forEach(message=>{
+      if(message.role === 'user' || message.role === 'assistant'){
+        addMessage(message.role, message.content || '', false);
+      }
+    });
+    scrollToBottom(false);
+  }catch(e){
+    // History is best-effort; a fresh server simply starts empty.
+  }
 }
 
 async function send(){
