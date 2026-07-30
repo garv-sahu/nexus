@@ -6,7 +6,13 @@ import re
 from dataclasses import dataclass
 from typing import Any
 
-from tools.browser import SEARCH_ENGINES, BrowserTool, to_markdown
+from tools.browser import (
+    SEARCH_ENGINES,
+    BrowserTool,
+    can_open_without_clarification,
+    is_ambiguous_open_target,
+    to_markdown,
+)
 
 
 @dataclass(frozen=True)
@@ -85,6 +91,20 @@ class BrowserRouter:
             if looks_like_search_request(target):
                 engine, query = extract_engine_and_query(target)
                 return BrowserIntent("search", {"query": query, "engine": engine})
+            if is_ambiguous_open_target(target):
+                return BrowserIntent(
+                    "clarify",
+                    {
+                        "target": target,
+                        "question": (
+                            "Do you want me to open a specific website, search the web, "
+                            "or summarize the current page? For example: `open instagram`, "
+                            "`search cool websites`, or `summarize this page`."
+                        ),
+                    },
+                )
+            if not can_open_without_clarification(target):
+                return BrowserIntent("search", {"query": strip_search_words(target), "engine": "google"})
             return BrowserIntent("open_url", {"url": target})
 
         search_match = re.search(r"^(?:search|find|look\s+up)(?:\s+(?:the\s+web|online))?(?:\s+for)?\s+(.+)$", text, re.I)
@@ -118,6 +138,13 @@ class BrowserRouter:
             return self._browser.click(intent.arguments["selector_or_text"])
         if intent.action == "fill":
             return self._browser.fill(intent.arguments["selector_or_label"], intent.arguments["value"])
+        if intent.action == "clarify":
+            return {
+                "success": False,
+                "message": "I need a bit more detail before opening something.",
+                "error": intent.arguments["question"],
+                "data": {"target": intent.arguments.get("target")},
+            }
         return {
             "success": False,
             "message": "Unsupported browser action.",
@@ -163,7 +190,10 @@ def looks_like_search_request(text: str) -> bool:
 
 
 def strip_search_words(text: str) -> str:
-    return re.sub(r"^(?:search|find|look\s+up)(?:\s+for)?\s+", "", text.strip(), flags=re.I).strip()
+    cleaned = re.sub(r"^(?:search|find|look\s+up)(?:\s+for)?\s+", "", text.strip(), flags=re.I).strip()
+    cleaned = re.sub(r"^(?:me|for me|please|pls)\s+", "", cleaned, flags=re.I).strip()
+    cleaned = re.sub(r"\s+(?:for me|please|pls)$", "", cleaned, flags=re.I).strip()
+    return cleaned
 
 
 def clean_optional(value: str | None) -> str | None:

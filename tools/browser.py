@@ -27,8 +27,10 @@ SEARCH_ENGINES: dict[str, str] = {
     "google": "https://www.google.com/search?q={query}",
     "web": "https://www.google.com/search?q={query}",
     "youtube": "https://www.youtube.com/results?search_query={query}",
+    "yt": "https://www.youtube.com/results?search_query={query}",
     "spotify": "https://open.spotify.com/search/{query}",
     "github": "https://github.com/search?q={query}",
+    "gh": "https://github.com/search?q={query}",
     "reddit": "https://www.reddit.com/search/?q={query}",
     "stackoverflow": "https://stackoverflow.com/search?q={query}",
     "stack overflow": "https://stackoverflow.com/search?q={query}",
@@ -39,13 +41,42 @@ SEARCH_ENGINES: dict[str, str] = {
     "duck duck go": "https://duckduckgo.com/?q={query}",
     "maps": "https://www.google.com/maps/search/{query}",
     "google maps": "https://www.google.com/maps/search/{query}",
+    "gmap": "https://www.google.com/maps/search/{query}",
+    "gmaps": "https://www.google.com/maps/search/{query}",
 }
 
 SITE_ALIASES: dict[str, str] = {
+    "chatgpt": "https://chatgpt.com",
+    "openai": "https://openai.com",
     "google": "https://www.google.com",
     "youtube": "https://www.youtube.com",
+    "yt": "https://www.youtube.com",
+    "instagram": "https://www.instagram.com",
+    "insta": "https://www.instagram.com",
+    "ig": "https://www.instagram.com",
+    "twitch": "https://www.twitch.tv",
+    "discord": "https://discord.com",
+    "pinterest": "https://www.pinterest.com",
+    "snapchat": "https://www.snapchat.com",
+    "telegram": "https://web.telegram.org",
+    "slack": "https://slack.com",
+    "threads": "https://www.threads.net",
+    "facebook": "https://www.facebook.com",
+    "fb": "https://www.facebook.com",
+    "x": "https://x.com",
+    "twitter": "https://x.com",
+    "linkedin": "https://www.linkedin.com",
+    "whatsapp": "https://web.whatsapp.com",
+    "gmail": "https://mail.google.com",
+    "mail": "https://mail.google.com",
+    "drive": "https://drive.google.com",
+    "gdrive": "https://drive.google.com",
+    "google drive": "https://drive.google.com",
+    "docs": "https://docs.google.com",
+    "google docs": "https://docs.google.com",
     "spotify": "https://open.spotify.com",
     "github": "https://github.com",
+    "gh": "https://github.com",
     "reddit": "https://www.reddit.com",
     "stackoverflow": "https://stackoverflow.com",
     "stack overflow": "https://stackoverflow.com",
@@ -56,7 +87,66 @@ SITE_ALIASES: dict[str, str] = {
     "duck duck go": "https://duckduckgo.com",
     "maps": "https://www.google.com/maps",
     "google maps": "https://www.google.com/maps",
+    "gmap": "https://www.google.com/maps",
+    "gmaps": "https://www.google.com/maps",
+    "netflix": "https://www.netflix.com",
+    "hotstar": "https://www.hotstar.com",
+    "disney hotstar": "https://www.hotstar.com",
+    "prime video": "https://www.primevideo.com",
+    "wikipedia": "https://www.wikipedia.org",
+    "medium": "https://medium.com",
+    "canva": "https://www.canva.com",
+    "figma": "https://www.figma.com",
+    "notion": "https://www.notion.so",
 }
+
+AMBIGUOUS_OPEN_WORDS = {
+    "anything",
+    "anywhere",
+    "random",
+    "cool",
+    "best",
+    "good",
+    "nice",
+    "interesting",
+    "some",
+    "something",
+    "site",
+    "website",
+    "page",
+    "this",
+    "that",
+    "it",
+    "there",
+}
+
+
+def can_open_without_clarification(value: str) -> bool:
+    """Return whether a target is specific enough to open immediately."""
+
+    text = require_text(value, "url").strip()
+    key = " ".join(text.lower().split())
+    if key in SITE_ALIASES:
+        return True
+    parsed = urlparse(text)
+    if parsed.scheme in {"http", "https"} and parsed.netloc:
+        return True
+    if "." in text and " " not in text:
+        return True
+    if re.fullmatch(r"[a-zA-Z0-9-]{2,63}", text):
+        return True
+    return False
+
+
+def is_ambiguous_open_target(value: str) -> bool:
+    """Return whether an open target is too vague to execute safely."""
+
+    words = set(re.findall(r"[a-zA-Z]+", value.lower()))
+    if not words:
+        return True
+    if words & AMBIGUOUS_OPEN_WORDS:
+        return True
+    return False
 
 
 @dataclass
@@ -139,7 +229,7 @@ class BrowserTool:
             html = fetch_html(normalized)
             parser = PageParser()
             parser.feed(html)
-            text = clean_text(" ".join(parser.text_parts))
+            text = parser.readable_text()
             self.state.current_url = normalized
             self.state.last_html = html
             self.state.last_text = text
@@ -160,7 +250,7 @@ class BrowserTool:
             return failure("Could not fetch page.", exc, {"url": target, "elapsed_seconds": elapsed(started)})
 
     def summarize(self, url: str | None = None, max_sentences: int = 5) -> dict[str, Any]:
-        """Summarize the current page or a supplied URL."""
+        """Prepare page content for summarization."""
 
         page = self.fetch(url)
         if not page["success"]:
@@ -169,11 +259,13 @@ class BrowserTool:
         sentences = split_sentences(text)
         summary = " ".join(sentences[: max(1, max_sentences)])
         return success(
-            "Summarized page.",
+            "Prepared page summary context.",
             {
                 "url": self.state.current_url,
                 "title": self.state.last_title,
                 "summary": summary or "No readable text was found on the page.",
+                "content": text,
+                "content_preview": text[:2500],
                 "sentence_count": len(sentences),
             },
         )
@@ -300,9 +392,11 @@ class PageParser(HTMLParser):
     def __init__(self) -> None:
         super().__init__()
         self.text_parts: list[str] = []
+        self.content_parts: list[str] = []
         self.links: list[dict[str, str]] = []
         self.headings: list[dict[str, str]] = []
         self.title: str | None = None
+        self._tag_stack: list[str] = []
         self._skip_depth = 0
         self._current_link: str | None = None
         self._current_heading: str | None = None
@@ -311,8 +405,9 @@ class PageParser(HTMLParser):
         self._title_text: list[str] = []
 
     def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        self._tag_stack.append(tag)
         attrs_dict = {key.lower(): value or "" for key, value in attrs}
-        if tag in {"script", "style", "noscript"}:
+        if tag in {"script", "style", "noscript", "svg", "nav", "header", "footer", "aside", "form", "button", "select"}:
             self._skip_depth += 1
         if tag == "a" and attrs_dict.get("href"):
             self._current_link = attrs_dict["href"]
@@ -324,7 +419,7 @@ class PageParser(HTMLParser):
             self._title_text = []
 
     def handle_endtag(self, tag: str) -> None:
-        if tag in {"script", "style", "noscript"} and self._skip_depth:
+        if tag in {"script", "style", "noscript", "svg", "nav", "header", "footer", "aside", "form", "button", "select"} and self._skip_depth:
             self._skip_depth -= 1
         if tag == "a":
             self._current_link = None
@@ -337,6 +432,8 @@ class PageParser(HTMLParser):
         if tag == "title":
             self._in_title = False
             self.title = clean_text(" ".join(self._title_text)) or None
+        if self._tag_stack:
+            self._tag_stack.pop()
 
     def handle_data(self, data: str) -> None:
         if self._skip_depth:
@@ -345,12 +442,25 @@ class PageParser(HTMLParser):
         if not text:
             return
         self.text_parts.append(text)
+        if self._is_readable_content_tag():
+            self.content_parts.append(text)
         if self._current_link:
             self.links.append({"text": text, "href": self._current_link})
         if self._current_heading:
             self._heading_text.append(text)
         if self._in_title:
             self._title_text.append(text)
+
+    def readable_text(self) -> str:
+        """Return the best readable body text for summarization."""
+
+        content = clean_text(" ".join(self.content_parts))
+        if len(content) >= 300:
+            return content
+        return clean_text(" ".join(self.text_parts))
+
+    def _is_readable_content_tag(self) -> bool:
+        return any(tag in self._tag_stack for tag in {"main", "article", "section", "p", "li", "blockquote", "td"})
 
 
 def fetch_html(url: str) -> str:
@@ -378,6 +488,8 @@ def normalize_url(value: str) -> str:
         return alias
     parsed = urlparse(text)
     if not parsed.scheme:
+        if "." not in text and "/" not in text and " " not in text:
+            text = f"www.{text}.com"
         text = f"https://{text}"
     parsed = urlparse(text)
     if parsed.scheme not in {"http", "https"}:
