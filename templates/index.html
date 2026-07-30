@@ -575,6 +575,19 @@ document.addEventListener('click', e=>{
 });
 loadModels();
 
+async function refreshBrowserStatus(){
+  const dot = document.getElementById('dot-browser');
+  try{
+    const res = await fetch('/api/browser/status');
+    const data = await res.json();
+    dot.classList.toggle('online', !!data.success);
+  }catch(e){
+    dot.classList.remove('online');
+  }
+}
+refreshBrowserStatus();
+setInterval(refreshBrowserStatus, 15000);
+
 /* ============================================================
    TOAST
    ============================================================ */

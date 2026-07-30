@@ -76,8 +76,6 @@ def switch_model():
         return jsonify({"error": "model is required"}), 400
 
     agent.set_model(model)
-    # TODO: if your agent keeps its own LLM handle (e.g. a LangGraph
-    # node bound to a specific model), update it here too.
 
     return jsonify({
         "ok": True,
@@ -114,6 +112,51 @@ def chat():
             status=500,
             mimetype="text/plain"
         )
+
+
+@app.route("/api/browser/status")
+def browser_status():
+    return jsonify(agent.browser.status())
+
+
+@app.route("/api/browser/action", methods=["POST"])
+def browser_action():
+    data = request.get_json(force=True) or {}
+    action = data.get("action")
+    arguments = data.get("arguments", {})
+
+    handlers = {
+        "open_url": agent.browser.open_url,
+        "search": agent.browser.search,
+        "fetch": agent.browser.fetch,
+        "summarize": agent.browser.summarize,
+        "extract": agent.browser.extract,
+        "screenshot": agent.browser.screenshot,
+        "click": agent.browser.click,
+        "fill": agent.browser.fill,
+        "status": agent.browser.status,
+    }
+    handler = handlers.get(action)
+    if handler is None:
+        return jsonify({
+            "success": False,
+            "message": "Browser action failed.",
+            "error": f"unsupported action: {action}",
+            "data": {"supported_actions": sorted(handlers)}
+        }), 400
+
+    if not isinstance(arguments, dict):
+        arguments = {}
+
+    try:
+        return jsonify(handler(**arguments))
+    except Exception as e:
+        return jsonify({
+            "success": False,
+            "message": "Browser action failed.",
+            "error": str(e),
+            "data": {"action": action}
+        }), 500
 
 
 if __name__ == "__main__":
