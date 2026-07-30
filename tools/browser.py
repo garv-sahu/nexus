@@ -405,7 +405,7 @@ def split_sentences(text: str) -> list[str]:
 
 def is_playwright_available() -> bool:
     try:
-        import    # noqa: F401
+        import playwright.sync_api  # noqa: F401
     except ImportError:
         return False
     return True
