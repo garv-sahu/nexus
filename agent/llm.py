@@ -2,7 +2,7 @@ import ollama
 
 class LLM:
     def __init__(self):
-        self.model = "gemma4:26b"
+        self.model = "gemma4"
 
     def set_model(self, model):
         self.model = model
